@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Swinko – Prototype</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #080812;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    canvas { display: block; position: fixed; top: 0; left: 0; }
+
+    .overlay {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 50;
+    }
+
+    #startScreen { background: #080812; }
+
+    .logo {
+      font-size: 80px; font-weight: 900; color: #e94560;
+      letter-spacing: -3px; line-height: 1;
+      text-shadow: 0 0 50px rgba(233,69,96,.55), 0 0 100px rgba(233,69,96,.2);
+    }
+    .tagline {
+      font-size: 11px; color: rgba(255,255,255,.28);
+      letter-spacing: 5px; margin-top: 7px; margin-bottom: 52px;
+    }
+    .btn-primary {
+      background: #e94560; color: #fff; border: none;
+      padding: 17px 52px; font-size: 17px; font-weight: 700;
+      border-radius: 60px; cursor: pointer;
+      box-shadow: 0 8px 32px rgba(233,69,96,.45);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-primary:active { transform: scale(.96); }
+    .hint {
+      font-size: 13px; color: rgba(255,255,255,.28);
+      margin-top: 22px; text-align: center; line-height: 1.8;
+      max-width: 240px;
+    }
+
+    #deathScreen {
+      display: none;
+      background: rgba(6,6,18,.93);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    .d-emoji  { font-size: 54px; margin-bottom: 12px; }
+    .d-title  { font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 5px; }
+    .d-sub    { font-size: 14px; color: rgba(255,255,255,.38); margin-bottom: 46px; }
+    .d-sub span { color: rgba(255,255,255,.85); font-weight: 600; }
+    .btn-revive {
+      background: linear-gradient(135deg,#f5a623,#e8890f);
+      color: #fff; border: none; padding: 17px 0; width: 272px;
+      font-size: 16px; font-weight: 700; border-radius: 60px; cursor: pointer;
+      box-shadow: 0 8px 28px rgba(245,166,35,.42); margin-bottom: 13px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-revive:active { transform: scale(.96); }
+    .btn-retry {
+      background: transparent; color: rgba(255,255,255,.38);
+      border: 1px solid rgba(255,255,255,.14);
+      padding: 14px 0; width: 272px; font-size: 15px;
+      font-weight: 600; border-radius: 60px; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ad-note { font-size: 10px; color: rgba(255,255,255,.16); margin-top: 10px; }
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div class="overlay" id="startScreen">
+  <div class="logo">Swinko</div>
+  <div class="tagline">PROTOTYPE v0.3</div>
+  <button class="btn-primary" id="btnStart">▶ &nbsp;PLAY</button>
+  <p class="hint">
+    Hold phone flat — ball rests still.<br>
+    Tilt to roll it. Quick flick upward<br>
+    (or tap) to juggle!
+  </p>
+</div>
+
+<div class="overlay" id="deathScreen">
+  <div class="d-emoji">💀</div>
+  <div class="d-title">Ball Lost!</div>
+  <div class="d-sub">You got <span id="finalScore">0</span> hits</div>
+  <button class="btn-revive" id="btnRevive">📺 &nbsp;Watch Ad to Revive</button>
+  <button class="btn-retry"  id="btnRetry">Restart</button>
+  <div class="ad-note">* In the real game an ad would play here</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  CANVAS
+// ═══════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// ═══════════════════════════════════════════════════════
+//  TUNING CONSTANTS
+// ═══════════════════════════════════════════════════════
+
+// Rolling (ball on tilted surface)
+const ROLL_GRAV      = 0.38;   // acceleration from tilt while rolling
+const ROLL_FRICTION  = 0.972;  // per-frame XY damping while rolling
+const EDGE_BOUNCE    = 0.52;   // energy kept after wall bounce
+const TILT_DEADZONE  = 0.04;   // ignore tiny tilts (phone never perfectly flat)
+const BALL_R         = 32;     // visual radius when on screen surface (z=0)
+
+// Airborne (ball in the air above screen)
+// z=0 → at screen surface. z>0 → flying away. z<0 → through screen (death).
+const HIT_VZ         = 11;     // z-velocity on a hit (upward launch speed)
+const GRAVITY_Z      = 0.14;   // gravity pulling ball back toward screen
+const Z_HIT_WINDOW   = 140;    // ball hittable when z < this AND returning (vz<0)
+const Z_DEATH        = -90;    // fell through paddle → death
+const FOCAL_Z        = 100;    // perspective: ball is half-size at z = FOCAL_Z
+const AIR_STEER      = 0.06;   // tilt influence on XY while airborne (gentle)
+const AIR_DAMP       = 0.997;  // XY damping while airborne
+
+// Flick detection (deviceMotion)
+const FLICK_THRESH   = 9;      // m/s² threshold for upward flick
+const FLICK_COOLDOWN = 400;    // ms between registered flicks
+
+// Off-screen death
+const OFFSCREEN_DEATH = 3000;  // ms off-screen while airborne before death
+
+const TRAIL_LEN      = 24;
+
+// ═══════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════
+let gameState    = 'start';
+let hits         = 0;
+let lastTs       = 0;
+
+// Ball: x,y = screen position. z = height above screen (0 = on surface, >0 = airborne)
+const ball = {
+  x: 0, y: 0,
+  vx: 0, vy: 0,
+  z: 0, vz: 0,
+  trail: [],
+  squash: 1,   // 1 = round; <1 = squashed on landing; >1 = stretched airborne
+};
+
+// Sub-state
+let isAirborne     = false;
+let canHit         = true;    // flips off after hit, on when ball returns to window
+let offscreenSince = 0;
+
+// Visual
+let hitFlash    = 0;
+let ctrScale    = 1;
+let particles   = [];
+let gridOX = 0, gridOY = 0;
+let landSquash  = 0;  // 0-1: squash anim on landing
+let servePrompt = true; // show "tap to serve" hint initially
+
+// ═══════════════════════════════════════════════════════
+//  INPUT — DEVICE ORIENTATION (tilt)
+// ═══════════════════════════════════════════════════════
+let tiltX = 0, tiltY = 0, gyroActive = false;
+
+function onOrientation(e) {
+  gyroActive = true;
+  // gamma = left/right tilt. beta = front/back.
+  // Deadzone so phone resting flat = no movement
+  const gx = (e.gamma || 0) / 45;
+  const gy = (e.beta  || 0) / 45;   // flat phone = zero tilt
+  tiltX = Math.abs(gx) > TILT_DEADZONE ? clamp(gx, -1, 1) : 0;
+  tiltY = Math.abs(gy) > TILT_DEADZONE ? clamp(gy, -1, 1) : 0;
+}
+
+// Desktop fallback: mouse → simulated tilt
+window.addEventListener('mousemove', e => {
+  if (gyroActive) return;
+  const gx = (e.clientX / canvas.width  - 0.5) * 2 * 1.2;
+  const gy = (e.clientY / canvas.height - 0.5) * 2 * 1.2;
+  tiltX = Math.abs(gx) > TILT_DEADZONE ? clamp(gx, -1, 1) : 0;
+  tiltY = Math.abs(gy) > TILT_DEADZONE ? clamp(gy, -1, 1) : 0;
+});
+
+// ═══════════════════════════════════════════════════════
+//  INPUT — DEVICE MOTION (flick detection)
+// ═══════════════════════════════════════════════════════
+let lastFlickTime = 0;
+let prevAccelZ    = 0;
+
+function onMotion(e) {
+  if (!e.acceleration) return;
+  const az = -(e.acceleration.z || 0);  // upward flick = positive z accel on face-up phone
+
+  // Rising edge: acceleration crosses threshold
+  if (az > FLICK_THRESH && prevAccelZ <= FLICK_THRESH) {
+    const now = performance.now();
+    if (now - lastFlickTime > FLICK_COOLDOWN) {
+      lastFlickTime = now;
+      doHit();
+    }
+  }
+  prevAccelZ = az;
+}
+
+// ═══════════════════════════════════════════════════════
+//  INPUT — TAP / CLICK (fallback & desktop)
+// ═══════════════════════════════════════════════════════
+function tapPos(e) {
+  const s = e.changedTouches ? e.changedTouches[0] : e;
+  return { x: s.clientX, y: s.clientY };
+}
+
+function onTap(e) {
+  e.preventDefault();
+  if (gameState !== 'playing') return;
+  doHit();
+}
+
+canvas.addEventListener('touchstart', onTap, { passive: false });
+canvas.addEventListener('mousedown',  onTap);
+
+// ═══════════════════════════════════════════════════════
+//  HIT LOGIC
+// ═══════════════════════════════════════════════════════
+function doHit() {
+  if (gameState !== 'playing') return;
+
+  // Rolling: always hittable (serve)
+  // Airborne: only hittable when returning (vz < 0) and within window
+  const rollingHit  = !isAirborne;
+  const airborneHit = isAirborne && canHit && ball.vz < 0 && ball.z < Z_HIT_WINDOW;
+
+  if (!rollingHit && !airborneHit) return;
+
+  // Launch ball up
+  ball.vz = HIT_VZ + Math.random() * 1.5;
+  ball.z  = Math.max(ball.z, 1);
+  isAirborne = true;
+  canHit  = false;
+  servePrompt = false;
+
+  hits++;
+  hitFlash = 1;
+  ctrScale = 1.5;
+  offscreenSince = 0;
+
+  spawnHitParticles(ball.x, ball.y);
+}
+
+// ═══════════════════════════════════════════════════════
+//  PERMISSIONS
+// ═══════════════════════════════════════════════════════
+async function requestSensors() {
+  if (typeof DeviceOrientationEvent !== 'undefined') {
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r === 'granted') {
+          window.addEventListener('deviceorientation', onOrientation);
+          window.addEventListener('devicemotion', onMotion);
+        }
+      } catch(e) {}
+    } else {
+      window.addEventListener('deviceorientation', onOrientation);
+      window.addEventListener('devicemotion', onMotion);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  GAME CONTROL
+// ═══════════════════════════════════════════════════════
+function placeBall() {
+  ball.x  = canvas.width  / 2;
+  ball.y  = canvas.height / 2;
+  ball.vx = 0; ball.vy = 0;
+  ball.z  = 0; ball.vz = 0;
+  ball.trail = [];
+  ball.squash = 1;
+  isAirborne = false;
+  canHit     = true;
+}
+
+function startGame() {
+  hits = 0; hitFlash = 0; ctrScale = 1;
+  particles = []; offscreenSince = 0;
+  servePrompt = true;
+  placeBall();
+  gameState = 'playing';
+  document.getElementById('startScreen').style.display  = 'none';
+  document.getElementById('deathScreen').style.display  = 'none';
+}
+
+function killPlayer() {
+  gameState = 'dead';
+  document.getElementById('finalScore').textContent = hits;
+  document.getElementById('deathScreen').style.display  = 'flex';
+}
+
+function revive() {
+  gameState = 'playing';
+  offscreenSince = 0;
+  placeBall();
+  document.getElementById('deathScreen').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════
+//  PARTICLES
+// ═══════════════════════════════════════════════════════
+function spawnHitParticles(x, y) {
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2, s = 2 + Math.random() * 9;
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s,
+      life:1, decay: .026+Math.random()*.03, hue: 330+Math.random()*50, r:3+Math.random()*5 });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════
+function loop(ts) {
+  const dt = clamp((ts - lastTs) / 16.667, 0.1, 3.5);
+  lastTs = ts;
+  if (gameState === 'playing') update(ts, dt);
+  draw(ts);
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════
+//  PHYSICS
+// ═══════════════════════════════════════════════════════
+function update(ts, dt) {
+  const W = canvas.width, H = canvas.height;
+
+  if (!isAirborne) {
+    // ── ROLLING ON SURFACE ──────────────────────────
+    // Tilt = gravity in XY
+    ball.vx += tiltX * ROLL_GRAV * dt;
+    ball.vy += tiltY * ROLL_GRAV * dt;
+
+    // Friction
+    const fr = Math.pow(ROLL_FRICTION, dt);
+    ball.vx *= fr;
+    ball.vy *= fr;
+
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+
+    // Wall bounces — ball stays on screen
+    if (ball.x < BALL_R)   { ball.x = BALL_R;   ball.vx =  Math.abs(ball.vx) * EDGE_BOUNCE; spawnWallBounce(ball.x, ball.y); }
+    if (ball.x > W-BALL_R) { ball.x = W-BALL_R; ball.vx = -Math.abs(ball.vx) * EDGE_BOUNCE; spawnWallBounce(ball.x, ball.y); }
+    if (ball.y < BALL_R)   { ball.y = BALL_R;   ball.vy =  Math.abs(ball.vy) * EDGE_BOUNCE; spawnWallBounce(ball.x, ball.y); }
+    if (ball.y > H-BALL_R) { ball.y = H-BALL_R; ball.vy = -Math.abs(ball.vy) * EDGE_BOUNCE; spawnWallBounce(ball.x, ball.y); }
+
+    ball.z      = 0;
+    ball.squash = 1 + 0.12 * (Math.hypot(ball.vx, ball.vy) / 12); // stretch in direction of motion
+    canHit      = true; // always hittable while rolling
+
+  } else {
+    // ── AIRBORNE ────────────────────────────────────
+    // Z physics
+    ball.vz -= GRAVITY_Z * dt;
+    ball.z  += ball.vz * dt;
+
+    // Light XY steering
+    ball.vx += tiltX * AIR_STEER * dt;
+    ball.vy += tiltY * AIR_STEER * dt;
+    const ad = Math.pow(AIR_DAMP, dt);
+    ball.vx *= ad;
+    ball.vy *= ad;
+
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+
+    // Squash/stretch based on z velocity
+    const t = ball.vz / HIT_VZ;
+    ball.squash = 1 + clamp(t * 0.25, -0.2, 0.3); // stretch going up, squash coming down
+
+    // Enable hitting when ball returns into window
+    if (ball.vz < 0 && ball.z < Z_HIT_WINDOW) {
+      canHit = true;
+    }
+
+    // Landing — ball returns to surface
+    if (ball.z <= 0) {
+      ball.z      = 0;
+      ball.vz     = 0;
+      isAirborne  = false;
+      canHit      = true;
+      landSquash  = 1; // trigger squash anim
+    }
+
+    // Death: fell through paddle
+    if (ball.z < Z_DEATH) { killPlayer(); return; }
+
+    // Off-screen XY while airborne
+    const pad  = 50;
+    const isOff = ball.x < -pad || ball.x > W+pad || ball.y < -pad || ball.y > H+pad;
+    if (isOff) {
+      if (!offscreenSince) offscreenSince = ts;
+      if (ts - offscreenSince > OFFSCREEN_DEATH) { killPlayer(); return; }
+    } else { offscreenSince = 0; }
+  }
+
+  // Trail (record every frame)
+  ball.trail.unshift({ x: ball.x, y: ball.y, z: ball.z });
+  if (ball.trail.length > TRAIL_LEN) ball.trail.pop();
+
+  // Anim decays
+  hitFlash    = Math.max(0, hitFlash  - 0.05 * dt);
+  ctrScale    = Math.max(1, ctrScale  - 0.07 * dt);
+  landSquash  = Math.max(0, landSquash - 0.08 * dt);
+
+  // Grid parallax from tilt
+  gridOX = (gridOX + tiltX * 2 * dt + 600) % 60;
+  gridOY = (gridOY + tiltY * 2 * dt + 600) % 60;
+
+  // Particles
+  for (let i = particles.length-1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.vy !== undefined) p.vy += 0.18 * dt;
+    p.life -= p.decay * dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+function spawnWallBounce(x, y) {
+  for (let i = 0; i < 4; i++) {
+    const a = Math.random() * Math.PI * 2, s = 1 + Math.random() * 3;
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s,
+      life:.6, decay:.06, hue:200+Math.random()*40, r:2+Math.random()*2 });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  BALL RADIUS (perspective)
+// ═══════════════════════════════════════════════════════
+// z=0 → BALL_R (full size). z increases → shrinks (flying away).
+function getBallRadius(z) {
+  return BALL_R * FOCAL_Z / (FOCAL_Z + Math.max(0, z));
+}
+
+// ═══════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════
+function draw(ts) {
+  const W = canvas.width, H = canvas.height;
+
+  ctx.fillStyle = '#080812';
+  ctx.fillRect(0, 0, W, H);
+
+  drawGrid(W, H);
+  drawSurface(W, H);   // subtle paddle feel
+  drawParticles();
+
+  if (gameState === 'playing') {
+    drawTrail();
+    drawShadow(W, H);           // landing-spot shadow while airborne
+    drawReturnRing(ts);         // pulsing ring when ball returning
+    drawBall(ts, W, H);
+
+    // Off-screen indicators (only when airborne)
+    if (isAirborne) {
+      const offXY = ball.x < 0 || ball.x > W || ball.y < 0 || ball.y > H;
+      if (offXY) {
+        drawArrow(ts, W, H);
+        if (offscreenSince) drawOffscreenBar(ts, W, H);
+      }
+    }
+
+    drawCounter(W);
+    if (servePrompt) drawServeHint(W, H, ts);
+    drawDebug(W, H);
+  }
+}
+
+function drawDebug(W, H) {
+  // Small debug overlay — tap anywhere 3× quickly to toggle
+  if (!window._dbg) return;
+  ctx.save();
+  ctx.font = '500 11px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const lines = [
+    'GYRO: ' + (gyroActive ? '✓' : '✗ NO EVENTS'),
+    'tiltX: ' + tiltX.toFixed(3),
+    'tiltY: ' + tiltY.toFixed(3),
+    'ball.z: ' + ball.z.toFixed(1),
+    'airborne: ' + isAirborne,
+  ];
+  lines.forEach((l, i) => {
+    const x = 10, y = H - 20 - (lines.length - i) * 16;
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.fillRect(x - 2, y - 1, ctx.measureText(l).width + 6, 14);
+    ctx.fillStyle = gyroActive ? '#4f9' : '#f84';
+    ctx.fillText(l, x, y);
+  });
+  ctx.restore();
+}
+
+// Triple-tap to toggle debug overlay
+let _tapTs = [], _dbgOn = false;
+canvas.addEventListener('touchstart', () => {
+  _tapTs.push(Date.now());
+  if (_tapTs.length > 3) _tapTs.shift();
+  if (_tapTs.length === 3 && _tapTs[2] - _tapTs[0] < 600) {
+    window._dbg = !window._dbg;
+  }
+}, { passive: true });
+
+// ── Background grid (parallax with tilt) ──────────────
+function drawGrid(W, H) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.028)';
+  ctx.lineWidth = 1;
+  const s = 60;
+  for (let x = gridOX%s-s; x < W+s; x += s) {
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for (let y = gridOY%s-s; y < H+s; y += s) {
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+}
+
+// ── Surface glow (phone = paddle feeling) ─────────────
+function drawSurface(W, H) {
+  // Subtle rounded rectangle glow on screen border = "this is the paddle"
+  const intensity = isAirborne
+    ? (canHit && ball.z < Z_HIT_WINDOW ? 0.09 : 0.03)
+    : 0.06;
+
+  ctx.strokeStyle = `rgba(233,69,96,${intensity})`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  rrect(12, 12, W-24, H-24, 22);
+  ctx.stroke();
+}
+
+// ── Ball shadow on screen surface ─────────────────────
+function drawShadow(W, H) {
+  if (!isAirborne || ball.z <= 0) return;
+  const t = 1 - clamp(ball.z / 400, 0, 1);   // 0=far, 1=close
+  const alpha   = t * t * 0.35;
+  const shadowW = BALL_R * 0.9 * t;
+  const shadowH = shadowW * 0.3;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle   = 'rgba(233,69,96,1)';
+  ctx.beginPath();
+  ctx.ellipse(ball.x, ball.y, shadowW, shadowH, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ── Pulsing ring when ball is returnable ──────────────
+function drawReturnRing(ts) {
+  if (!isAirborne || !canHit || ball.z >= Z_HIT_WINDOW) return;
+  const t     = 1 - ball.z / Z_HIT_WINDOW;  // 0→1 as ball approaches
+  const r     = getBallRadius(ball.z);
+  const ringR = r + 16 + (1-t)*20;
+  const pulse = 0.5 + 0.5 * Math.sin(ts / 85);
+  const alpha = t * pulse;
+
+  ctx.save();
+  ctx.globalAlpha  = alpha;
+  ctx.strokeStyle  = t > 0.6 ? '#f5a623' : '#e94560';
+  ctx.lineWidth    = 2.5;
+  ctx.shadowColor  = t > 0.6 ? '#f5a623' : '#e94560';
+  ctx.shadowBlur   = 14;
+  ctx.setLineDash([5, 9]);
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ringR, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// ── Trail ─────────────────────────────────────────────
+function drawTrail() {
+  for (let i = ball.trail.length-1; i >= 0; i--) {
+    const tp   = ball.trail[i];
+    const prog = 1 - i / ball.trail.length;
+    const r    = getBallRadius(tp.z) * prog * 0.5;
+    if (r < 0.5) continue;
+    ctx.globalAlpha = prog * prog * 0.18;
+    ctx.fillStyle   = '#e94560';
+    ctx.beginPath();
+    ctx.arc(tp.x, tp.y, r, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── Ball ──────────────────────────────────────────────
+function drawBall(ts, W, H) {
+  const { x, y, z } = ball;
+  const baseR = getBallRadius(z);
+
+  // Squash/stretch
+  const sq    = isAirborne ? ball.squash : (1 - landSquash * 0.3);
+  // Squash = wider (rX > baseR) and shorter (rY < baseR) on landing
+  const rX = baseR * (isAirborne ? 1 : 1 + landSquash * 0.18);
+  const rY = baseR * (isAirborne ? sq : 1 - landSquash * 0.22);
+
+  // Colour: cool blue when high up, warm red when approaching / rolling
+  const proximity = isAirborne
+    ? clamp(1 - z / Z_HIT_WINDOW, 0, 1)
+    : 1;                                        // rolling → always "close" colour
+  const hue   = 220 - proximity * 200;          // blue → red
+  const light = 55  + proximity * 15;
+  const sat   = 65  + proximity * 25;
+
+  // Glow
+  const glowR = baseR * (2.4 + hitFlash * 1.6);
+  const glow  = ctx.createRadialGradient(x, y, baseR*.1, x, y, glowR);
+  glow.addColorStop(0, `hsla(${hue},${sat}%,${light}%,${0.14 + hitFlash*.4})`);
+  glow.addColorStop(1, `hsla(${hue},${sat}%,${light}%,0)`);
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.ellipse(x, y, glowR, glowR, 0, 0, Math.PI*2); ctx.fill();
+
+  // Body
+  const body = ctx.createRadialGradient(x - rX*.28, y - rY*.33, rX*.04, x, y, Math.max(rX,rY));
+  body.addColorStop(0,    `hsl(${hue},${sat}%,${light+28}%)`);
+  body.addColorStop(0.55, `hsl(${hue},${sat}%,${light}%)`);
+  body.addColorStop(1,    `hsl(${hue},${sat}%,${light-25}%)`);
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.ellipse(x, y, rX, rY, 0, 0, Math.PI*2); ctx.fill();
+
+  // Specular
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(x - rX*.27, y - rY*.33, rX*.2, rY*.12, -.4, 0, Math.PI*2);
+  ctx.fill();
+
+  // Flash ring at moment of return (z ≈ 0, coming back)
+  if (isAirborne && ball.vz < 0 && z < 22) {
+    const frac = 1 - z/22;
+    ctx.globalAlpha = frac * 0.85;
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth   = 2.5;
+    ctx.shadowColor = '#fff'; ctx.shadowBlur = 18;
+    ctx.beginPath(); ctx.ellipse(x, y, rX+7, rY+7, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+}
+
+// ── Serve hint ─────────────────────────────────────────
+function drawServeHint(W, H, ts) {
+  const alpha = 0.45 + 0.3 * Math.sin(ts / 600);
+  ctx.save();
+  ctx.globalAlpha  = alpha;
+  ctx.fillStyle    = 'rgba(255,255,255,1)';
+  ctx.font         = '600 15px -apple-system,sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Tap to serve  ↑', W/2, H - 80);
+  ctx.restore();
+}
+
+// ── Off-screen arrow ──────────────────────────────────
+function drawArrow(ts, W, H) {
+  const MARG = 55;
+  const ax = clamp(ball.x, MARG, W-MARG);
+  const ay = clamp(ball.y, MARG, H-MARG);
+  const angle = Math.atan2(ball.y-ay, ball.x-ax);
+  const ex = clamp(ball.x,0,W), ey = clamp(ball.y,0,H);
+  const dist = Math.hypot(ball.x-ex, ball.y-ey);
+  const sz   = 27 - clamp(dist/400,0,1) * 13;
+  const p    = 0.6 + 0.4*Math.sin(ts/200);
+
+  ctx.save();
+  ctx.translate(ax,ay); ctx.rotate(angle);
+  ctx.globalAlpha = p;
+  ctx.fillStyle   = '#f5a623';
+  ctx.shadowColor = '#f5a623'; ctx.shadowBlur = 18;
+  ctx.beginPath();
+  ctx.moveTo(sz,0); ctx.lineTo(-sz*.55,-sz*.55); ctx.lineTo(-sz*.15,0); ctx.lineTo(-sz*.55,sz*.55);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  if (dist > 20) {
+    ctx.save();
+    ctx.globalAlpha  = .4 + .3*Math.sin(ts/200);
+    ctx.fillStyle    = '#fff';
+    ctx.font         = 'bold 10px sans-serif';
+    ctx.textAlign    = 'center'; ctx.textBaseline = 'middle';
+    const lx = ax - Math.cos(angle)*(sz+18);
+    const ly = ay - Math.sin(angle)*(sz+18);
+    ctx.fillText(Math.round(dist)+'px', lx, ly);
+    ctx.restore();
+  }
+}
+
+// ── Off-screen death bar ──────────────────────────────
+function drawOffscreenBar(ts, W, H) {
+  const prog = clamp((ts-offscreenSince)/OFFSCREEN_DEATH, 0, 1);
+  const bw=200, bh=5, bx=W/2-100, by=H-66;
+  ctx.fillStyle='rgba(255,255,255,.1)'; rrect(bx,by,bw,bh,3); ctx.fill();
+  if (prog<1) {
+    ctx.fillStyle = prog<.5 ? '#f5a623' : '#e94560';
+    rrect(bx,by,bw*(1-prog),bh,3); ctx.fill();
+  }
+  ctx.fillStyle='rgba(255,255,255,.38)';
+  ctx.font='600 11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillText('GET IT BACK!', W/2, by+10);
+}
+
+// ── Particles ─────────────────────────────────────────
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle   = `hsl(${p.hue},85%,62%)`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r*p.life, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── Hit counter ───────────────────────────────────────
+function drawCounter(W) {
+  const s = ctrScale;
+  ctx.save();
+  ctx.translate(W/2, 30); ctx.scale(s,s);
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.font='900 66px -apple-system,sans-serif';
+  ctx.fillStyle='#fff';
+  ctx.shadowColor='rgba(233,69,96,.6)'; ctx.shadowBlur=24;
+  ctx.fillText(hits, 0, 0);
+  ctx.scale(1/s,1/s); ctx.shadowBlur=0;
+  ctx.font='500 10px sans-serif';
+  ctx.fillStyle='rgba(255,255,255,.28)';
+  ctx.fillText('H I T S', 0, 72);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════
+function clamp(v,lo,hi){ return v<lo?lo:v>hi?hi:v; }
+function rrect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r);
+  ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
+
+// ═══════════════════════════════════════════════════════
+//  UI WIRING
+// ═══════════════════════════════════════════════════════
+document.getElementById('btnStart').addEventListener('click', async () => {
+  await requestSensors();
+  startGame();
+});
+document.getElementById('btnRevive').addEventListener('click', revive);
+document.getElementById('btnRetry').addEventListener('click', () => {
+  document.getElementById('deathScreen').style.display = 'none';
+  startGame();
+});
+
+// ═══════════════════════════════════════════════════════
+//  KICK OFF
+// ═══════════════════════════════════════════════════════
+requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
