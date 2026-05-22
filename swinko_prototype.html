@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Swinko – Prototype</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d1b0e;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    canvas { display: block; position: fixed; top: 0; left: 0; }
+
+    .overlay {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 50;
+    }
+
+    /* ── Start Screen ─────────────────────────────────── */
+    #startScreen { background: #0d1b0e; }
+    .logo {
+      font-size: 80px; font-weight: 900; color: #e94560;
+      letter-spacing: -3px; line-height: 1;
+      text-shadow: 0 0 50px rgba(233,69,96,.55), 0 0 100px rgba(233,69,96,.2);
+    }
+    .tagline {
+      font-size: 11px; color: rgba(255,255,255,.28);
+      letter-spacing: 5px; margin-top: 7px; margin-bottom: 52px;
+    }
+    .btn-primary {
+      background: #e94560; color: #fff; border: none;
+      padding: 17px 52px; font-size: 17px; font-weight: 700;
+      border-radius: 60px; cursor: pointer;
+      box-shadow: 0 8px 32px rgba(233,69,96,.45);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-primary:active { transform: scale(.96); }
+    .hint {
+      font-size: 13px; color: rgba(255,255,255,.28);
+      margin-top: 22px; text-align: center; line-height: 1.8;
+      max-width: 240px;
+    }
+
+    /* ── Level Select Screen ──────────────────────────── */
+    #levelSelect {
+      background: #0d1b0e;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      display: none;
+    }
+    .ls-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 18px 20px 8px;
+      position: sticky; top: 0;
+      background: #0d1b0e;
+      z-index: 2;
+    }
+    .ls-back {
+      background: rgba(255,255,255,.08); border: none; color: #fff;
+      width: 38px; height: 38px; border-radius: 50%; font-size: 18px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+    }
+    .ls-title {
+      font-size: 20px; font-weight: 800; color: #fff; flex: 1;
+    }
+    .level-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding: 12px 16px 32px;
+    }
+    .level-card {
+      background: rgba(255,255,255,.06);
+      border: 1.5px solid rgba(255,255,255,.1);
+      border-radius: 16px; padding: 14px 10px;
+      cursor: pointer; text-align: center;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform .12s;
+      position: relative;
+    }
+    .level-card.active {
+      background: rgba(233,69,96,.14);
+      border-color: rgba(233,69,96,.55);
+    }
+    .level-card.locked { opacity: .38; cursor: default; }
+    .level-card:not(.locked):active { transform: scale(.94); }
+    .level-card .lc-emoji  { font-size: 30px; display: block; margin-bottom: 6px; line-height: 1; }
+    .level-card .lc-num    { font-size: 9px; color: rgba(255,255,255,.3); margin-bottom: 2px; }
+    .level-card .lc-name   { font-size: 12px; font-weight: 700; color: #fff; line-height: 1.3; }
+    .level-card .lc-desc   { font-size: 9px; color: rgba(255,255,255,.4); margin-top: 4px; line-height: 1.4; }
+    .level-card .lc-badge  {
+      position: absolute; top: 7px; right: 8px;
+      font-size: 8px; font-weight: 700; letter-spacing: .5px;
+      color: rgba(255,255,255,.35); text-transform: uppercase;
+    }
+    .level-card.active .lc-badge { color: #e94560; }
+
+    /* ── Death Screen ─────────────────────────────────── */
+    #deathScreen {
+      display: none;
+      background: rgba(6,6,18,.93);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    }
+    .d-emoji  { font-size: 54px; margin-bottom: 12px; }
+    .d-title  { font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 5px; }
+    .d-sub    { font-size: 14px; color: rgba(255,255,255,.38); margin-bottom: 10px; }
+    .d-sub span { color: rgba(255,255,255,.85); font-weight: 600; }
+    .d-level  { font-size: 12px; color: rgba(255,255,255,.28); margin-bottom: 36px; }
+    .btn-revive {
+      background: linear-gradient(135deg,#f5a623,#e8890f);
+      color: #fff; border: none; padding: 17px 0; width: 272px;
+      font-size: 16px; font-weight: 700; border-radius: 60px; cursor: pointer;
+      box-shadow: 0 8px 28px rgba(245,166,35,.42); margin-bottom: 13px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-revive:active { transform: scale(.96); }
+    .btn-retry {
+      background: transparent; color: rgba(255,255,255,.38);
+      border: 1px solid rgba(255,255,255,.14);
+      padding: 14px 0; width: 272px; font-size: 15px;
+      font-weight: 600; border-radius: 60px; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-levels {
+      background: transparent; color: rgba(255,255,255,.28);
+      border: none; font-size: 13px; margin-top: 14px;
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
+    }
+    .ad-note { font-size: 10px; color: rgba(255,255,255,.16); margin-top: 10px; }
+
+    /* ── In-game back button ──────────────────────────── */
+    #btnBack {
+      position: fixed; top: 12px; left: 12px; z-index: 40;
+      background: rgba(0,0,0,.28); border: none; color: rgba(255,255,255,.5);
+      width: 36px; height: 36px; border-radius: 50%; font-size: 16px;
+      cursor: pointer; display: none; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<button id="btnBack">←</button>
+
+<!-- ── Start Screen ─────────────────────────────────── -->
+<div class="overlay" id="startScreen">
+  <div class="logo">Swinko</div>
+  <div class="tagline">PROTOTYPE v0.4</div>
+  <button class="btn-primary" id="btnStart">▶ &nbsp;PLAY</button>
+  <p class="hint">
+    Hold phone flat — ball rests still.<br>
+    Tilt to roll it. Flick up to juggle!
+  </p>
+</div>
+
+<!-- ── Level Select ─────────────────────────────────── -->
+<div class="overlay" id="levelSelect">
+  <div class="ls-header">
+    <button class="ls-back" id="btnLsBack">←</button>
+    <div class="ls-title">Choose Level</div>
+  </div>
+  <div class="level-grid" id="levelGrid">
+    <!-- generated by JS -->
+  </div>
+</div>
+
+<!-- ── Death Screen ─────────────────────────────────── -->
+<div class="overlay" id="deathScreen">
+  <div class="d-emoji">💀</div>
+  <div class="d-title">Ball Lost!</div>
+  <div class="d-sub">You got <span id="finalScore">0</span> swings</div>
+  <div class="d-level" id="deathLevel"></div>
+  <button class="btn-revive" id="btnRevive">📺 &nbsp;Watch Ad to Revive</button>
+  <button class="btn-retry"  id="btnRetry">Try Again</button>
+  <button class="btn-levels" id="btnToLevels">← Level Select</button>
+  <div class="ad-note">* In the real game an ad would play here</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  CANVAS
+// ═══════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  crackedEarthCache = null;   // regenerate texture on resize
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ═══════════════════════════════════════════════════════
+//  LEVEL DEFINITIONS  (14 levels — implement one at a time)
+// ═══════════════════════════════════════════════════════
+const LEVEL_DEFS = [
+  { id:1,  emoji:'🏜️', name:'Desert Crack',  desc:'Ground crumbles where ball hits',   color:'#5d4037', ready:true  },
+  { id:2,  emoji:'⚡',  name:'Battle Royale', desc:'Field shrinks — stay inside',       color:'#b71c1c', ready:false },
+  { id:3,  emoji:'💨',  name:'Storm',         desc:'Wind pushes the ball off',          color:'#0277bd', ready:false },
+  { id:4,  emoji:'🔥',  name:'Inferno',       desc:'Smoke blocks your view',            color:'#e65100', ready:false },
+  { id:5,  emoji:'🧊',  name:'Ice Rink',      desc:'Ultra-slippery surface',            color:'#0288d1', ready:false },
+  { id:6,  emoji:'👾',  name:'Monster Pit',   desc:'Monsters chase & eat the ball',     color:'#1b5e20', ready:false },
+  { id:7,  emoji:'🌿',  name:'Jungle',        desc:'Plants hide the ball',              color:'#33691e', ready:false },
+  { id:8,  emoji:'🏝️', name:'Archipelago',   desc:'Water slows & sinks the ball',      color:'#01579b', ready:false },
+  { id:9,  emoji:'🌀',  name:'Portals',       desc:'Ball teleports to random portal',   color:'#4a148c', ready:false },
+  { id:10, emoji:'💀',  name:'Cracked Ball',  desc:'Ball shatters from hard hits',      color:'#37474f', ready:false },
+  { id:11, emoji:'🚀',  name:'Altitude',      desc:'Go high or the floor collapses',    color:'#1565c0', ready:false },
+  { id:12, emoji:'🎱',  name:'Billiards',     desc:'Score by landing in pockets',       color:'#1b5e20', ready:false },
+  { id:13, emoji:'🎯',  name:'Air Defense',   desc:'Dodge homing missiles',             color:'#880e4f', ready:false },
+  { id:14, emoji:'🌑',  name:'Sinkhole',      desc:'Floor crumbles over time',          color:'#212121', ready:false },
+];
+
+// ═══════════════════════════════════════════════════════
+//  TUNING CONSTANTS
+// ═══════════════════════════════════════════════════════
+
+// Rolling (ball on tilted surface) — ping-pong physics
+const ROLL_GRAV      = 0.44;
+const ROLL_FRICTION  = 0.986;
+const EDGE_BOUNCE    = 0.76;
+const TILT_DEADZONE  = 0.04;
+const BALL_R         = 20;
+
+// Airborne
+const HIT_VZ         = 10;
+const GRAVITY_Z      = 0.26;
+const Z_HIT_WINDOW   = 50;
+const Z_DEATH        = -60;
+const FOCAL_Z        = 50;
+const AIR_STEER      = 0.06;
+const AIR_DAMP       = 0.997;
+
+// Flick detection
+const FLICK_THRESH   = 9;
+const FLICK_COOLDOWN = 400;
+
+// Off-screen death
+const OFFSCREEN_DEATH = 1500;
+
+// Rally energy
+const RALLY_DECAY    = 0.88;
+const MIN_RALLY_VZ   = 5.0;
+const FLICK_POWER    = 3.5;
+const MAX_VZ         = 18;
+
+const TRAIL_LEN      = 24;
+
+// ═══════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════
+let gameState    = 'start';   // 'start' | 'levels' | 'playing' | 'dead'
+let currentLevel = 1;         // active level id
+let hits         = 0;
+let lastTs       = 0;
+
+const ball = {
+  x:0, y:0,
+  vx:0, vy:0,
+  z:0, vz:0,
+  trail:[],
+  squash:1,
+};
+
+let isAirborne     = false;
+let canHit         = true;
+let offscreenSince = 0;
+let rallyVz        = HIT_VZ;
+
+let hitFlash    = 0;
+let ctrScale    = 1;
+let particles   = [];
+let gridOX = 0, gridOY = 0;
+let landSquash  = 0;
+let servePrompt = true;
+
+// Cached background textures (generated once per screen size)
+let crackedEarthCache = null;
+
+// Physics overrides (levels can change these)
+let pFriction   = ROLL_FRICTION;
+let pEdgeBounce = EDGE_BOUNCE;
+let pWindX      = 0;
+let pWindY      = 0;
+
+// ═══════════════════════════════════════════════════════
+//  LEVEL STATE  (per-level mutable data)
+// ═══════════════════════════════════════════════════════
+let lvl = {};   // reset on each level start
+
+function initLevel(id) {
+  pFriction   = ROLL_FRICTION;
+  pEdgeBounce = EDGE_BOUNCE;
+  pWindX      = 0;
+  pWindY      = 0;
+  lvl         = {};
+
+  switch (id) {
+    case 1: initLevel1(); break;
+    // future levels go here
+  }
+}
+
+// callback: ball auto-bounced at (x, y)
+function levelOnBounce(x, y) {
+  if (currentLevel === 1) level1OnBounce(x, y);
+}
+
+// callback: player manually hit (swing)
+function levelOnHit(vz) {
+  // reserved for future levels
+}
+
+function updateLevel(ts, dt, W, H) {
+  switch (currentLevel) {
+    case 1: updateLevel1(ts, dt, W, H); break;
+  }
+}
+
+function drawLevelUnderBall(ts, W, H) {
+  switch (currentLevel) {
+    case 1: drawLevel1Under(ts, W, H); break;
+  }
+}
+
+function drawLevelOverBall(ts, W, H) {
+  switch (currentLevel) {
+    case 1: break; // nothing over ball for level 1
+  }
+}
+
+function drawLevelHUD(ts, W, H) {
+  switch (currentLevel) {
+    case 1: drawLevel1HUD(ts, W, H); break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  LEVEL 1 — CRATER FIELD
+//  Every bounce leaves a growing hole. Roll onto a hole → death.
+// ═══════════════════════════════════════════════════════
+const L1_HOLE_START_R  = 18;   // initial hole radius
+const L1_HOLE_MAX_R    = 52;   // hole grows to this
+const L1_HOLE_GROW     = 0.018; // radius growth per dt
+const L1_DEATH_SHRINK  = 0.7;  // contact area (fraction of hole radius)
+
+function initLevel1() {
+  lvl.holes = [];          // [{x, y, r, alpha}]
+  lvl.bounceCount = 0;
+}
+
+function level1OnBounce(x, y) {
+  // Don't spawn hole if ball is off-screen
+  const W = canvas.width, H = canvas.height;
+  if (x < 0 || x > W || y < 0 || y > H) return;
+
+  lvl.holes.push({ x, y, r: L1_HOLE_START_R, alpha: 0 });
+  lvl.bounceCount++;
+}
+
+function updateLevel1(ts, dt, W, H) {
+  if (!lvl.holes) return;
+
+  for (const h of lvl.holes) {
+    // Hole grows slowly
+    h.r     = Math.min(L1_HOLE_MAX_R, h.r + L1_HOLE_GROW * dt);
+    // Fade in on creation
+    h.alpha = Math.min(1, h.alpha + 0.05 * dt);
+  }
+
+  // Death check: ball rolling into a hole
+  if (!isAirborne && ball.z <= 0) {
+    for (const h of lvl.holes) {
+      const dx = ball.x - h.x, dy = ball.y - h.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < h.r * L1_DEATH_SHRINK) {
+        killPlayer();
+        return;
+      }
+    }
+  }
+}
+
+function drawLevel1Under(ts, W, H) {
+  if (!lvl.holes) return;
+  for (const h of lvl.holes) {
+    ctx.save();
+    ctx.globalAlpha = h.alpha;
+
+    // ── Outer stress zone: ground darkens/cracks around hole ──
+    const stressGrad = ctx.createRadialGradient(h.x, h.y, h.r * 0.6, h.x, h.y, h.r * 1.9);
+    stressGrad.addColorStop(0,   'rgba(0,0,0,0)');
+    stressGrad.addColorStop(0.5, 'rgba(40,18,4,0.35)');
+    stressGrad.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = stressGrad;
+    ctx.beginPath();
+    ctx.arc(h.x, h.y, h.r * 1.9, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ── Broken rim: jagged lighter edge (exposed earth cross-section) ──
+    // Drawn as rough polygonal ring
+    const rimR  = h.r * 1.0;
+    const segs  = 14;
+    ctx.beginPath();
+    for (let i = 0; i <= segs; i++) {
+      const a   = (i / segs) * Math.PI * 2;
+      // Seed the jitter deterministically per hole using index
+      const jit = h.r * 0.12 * Math.sin(i * 7.3 + h.x * 0.05);
+      const rr  = rimR + jit;
+      const xi  = h.x + Math.cos(a) * rr;
+      const yi  = h.y + Math.sin(a) * rr;
+      i === 0 ? ctx.moveTo(xi, yi) : ctx.lineTo(xi, yi);
+    }
+    ctx.closePath();
+    const rimGrad = ctx.createRadialGradient(h.x, h.y, h.r*0.65, h.x, h.y, h.r*1.05);
+    rimGrad.addColorStop(0, 'rgba(185,140,90,0)');
+    rimGrad.addColorStop(0.6,'rgba(180,130,80,0.6)');
+    rimGrad.addColorStop(1,  'rgba(120,75,30,0.4)');
+    ctx.fillStyle = rimGrad;
+    ctx.fill();
+
+    // ── Hole interior: deep void, darker at centre ──
+    const holeR = h.r * 0.92;
+    const holeGrad = ctx.createRadialGradient(
+      h.x - h.r*0.18, h.y - h.r*0.22, 0,
+      h.x, h.y, holeR
+    );
+    holeGrad.addColorStop(0,    'rgba(12,6,2,1)');
+    holeGrad.addColorStop(0.55, 'rgba(8,4,1,0.98)');
+    holeGrad.addColorStop(0.85, 'rgba(25,12,4,0.92)');
+    holeGrad.addColorStop(1,    'rgba(50,25,8,0.55)');
+    ctx.beginPath();
+    ctx.arc(h.x, h.y, holeR, 0, Math.PI * 2);
+    ctx.fillStyle = holeGrad;
+    ctx.fill();
+
+    // ── Depth highlight: faint rim-light on one side (sunlight from above) ──
+    ctx.globalAlpha = h.alpha * 0.35;
+    const rimLight = ctx.createLinearGradient(
+      h.x - holeR, h.y - holeR*0.6,
+      h.x + holeR, h.y + holeR*0.6
+    );
+    rimLight.addColorStop(0,   'rgba(200,150,80,0.5)');
+    rimLight.addColorStop(0.45,'rgba(200,150,80,0)');
+    rimLight.addColorStop(1,   'rgba(200,150,80,0)');
+    ctx.beginPath();
+    ctx.arc(h.x, h.y, holeR, 0, Math.PI * 2);
+    ctx.fillStyle = rimLight;
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+function drawLevel1HUD(ts, W, H) {
+  if (!lvl.holes) return;
+  const count = lvl.holes.length;
+
+  // Red dust/heat vignette when ground is heavily cracked
+  if (count >= 5) {
+    const danger = Math.min(1, (count - 5) / 12);
+    const pulse  = 0.5 + 0.5 * Math.sin(ts / (350 - danger * 180));
+    ctx.save();
+    ctx.globalAlpha = danger * pulse * 0.22;
+    const dustGrad = ctx.createRadialGradient(W/2, H, 0, W/2, H/2, H);
+    dustGrad.addColorStop(0,  '#ff6600');
+    dustGrad.addColorStop(1,  'rgba(180,60,0,0)');
+    ctx.fillStyle = dustGrad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  // Crack counter — styled as desert worn text
+  if (count > 0) {
+    ctx.save();
+    ctx.font         = '700 11px -apple-system,sans-serif';
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'top';
+    const danger = count > 5;
+    ctx.shadowColor  = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 4;
+    ctx.fillStyle    = danger ? '#ffb347' : 'rgba(220,180,120,0.6)';
+    ctx.fillText(`${count} cracks`, W - 16, 16);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  INPUT — DEVICE ORIENTATION
+// ═══════════════════════════════════════════════════════
+let tiltX = 0, tiltY = 0, gyroActive = false;
+
+function onOrientation(e) {
+  gyroActive = true;
+  const gx = (e.gamma || 0) / 45;
+  const gy = (e.beta  || 0) / 45;
+  tiltX = Math.abs(gx) > TILT_DEADZONE ? clamp(gx, -1, 1) : 0;
+  tiltY = Math.abs(gy) > TILT_DEADZONE ? clamp(gy, -1, 1) : 0;
+}
+
+window.addEventListener('mousemove', e => {
+  if (gyroActive) return;
+  const gx = (e.clientX / canvas.width  - 0.5) * 2 * 1.2;
+  const gy = (e.clientY / canvas.height - 0.5) * 2 * 1.2;
+  tiltX = Math.abs(gx) > TILT_DEADZONE ? clamp(gx, -1, 1) : 0;
+  tiltY = Math.abs(gy) > TILT_DEADZONE ? clamp(gy, -1, 1) : 0;
+});
+
+// ═══════════════════════════════════════════════════════
+//  INPUT — DEVICE MOTION (flick)
+// ═══════════════════════════════════════════════════════
+let lastFlickTime = 0, prevAccelZ = 0;
+
+function onMotion(e) {
+  if (!e.acceleration) return;
+  const az = -(e.acceleration.z || 0);
+  if (az > FLICK_THRESH && prevAccelZ <= FLICK_THRESH) {
+    const now = performance.now();
+    if (now - lastFlickTime > FLICK_COOLDOWN) {
+      lastFlickTime = now;
+      doHit();
+    }
+  }
+  prevAccelZ = az;
+}
+
+// ═══════════════════════════════════════════════════════
+//  INPUT — TAP / CLICK
+// ═══════════════════════════════════════════════════════
+function onTap(e) {
+  e.preventDefault();
+  if (gameState !== 'playing') return;
+  doHit();
+}
+canvas.addEventListener('touchstart', onTap, { passive: false });
+canvas.addEventListener('mousedown',  onTap);
+
+// ═══════════════════════════════════════════════════════
+//  HIT LOGIC
+// ═══════════════════════════════════════════════════════
+function doHit() {
+  if (gameState !== 'playing') return;
+  const rollingHit  = !isAirborne;
+  const airborneHit = isAirborne && canHit && ball.vz < 0 && ball.z < Z_HIT_WINDOW;
+  if (!rollingHit && !airborneHit) return;
+
+  if (rollingHit) {
+    rallyVz    = HIT_VZ;
+    ball.vz    = HIT_VZ + Math.random() * 1.5;
+    ball.z     = Math.max(ball.z, 1);
+    isAirborne = true;
+    offscreenSince = 0;
+  } else {
+    rallyVz = Math.min(MAX_VZ, rallyVz + FLICK_POWER);
+    ball.vz = rallyVz + Math.random() * 1;
+  }
+
+  canHit      = false;
+  servePrompt = false;
+  hits++;
+  hitFlash    = 1;
+  ctrScale    = 1.6;
+  spawnHitParticles(ball.x, ball.y);
+  levelOnHit(rallyVz);
+}
+
+// ═══════════════════════════════════════════════════════
+//  PERMISSIONS
+// ═══════════════════════════════════════════════════════
+async function requestSensors() {
+  if (typeof DeviceOrientationEvent !== 'undefined') {
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r === 'granted') {
+          window.addEventListener('deviceorientation', onOrientation);
+          window.addEventListener('devicemotion', onMotion);
+        }
+      } catch(e) {}
+    } else {
+      window.addEventListener('deviceorientation', onOrientation);
+      window.addEventListener('devicemotion', onMotion);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  GAME CONTROL
+// ═══════════════════════════════════════════════════════
+function placeBall() {
+  ball.x = canvas.width  / 2;
+  ball.y = canvas.height / 2;
+  ball.vx = 0; ball.vy = 0;
+  ball.z  = 0; ball.vz = 0;
+  ball.trail = [];
+  ball.squash = 1;
+  isAirborne = false;
+  canHit     = true;
+}
+
+function startGame(levelId) {
+  currentLevel = levelId;
+  hits = 0; hitFlash = 0; ctrScale = 1;
+  particles = []; offscreenSince = 0;
+  rallyVz = HIT_VZ;
+  servePrompt = true;
+  placeBall();
+  initLevel(levelId);
+  gameState = 'playing';
+  document.getElementById('startScreen').style.display   = 'none';
+  document.getElementById('levelSelect').style.display   = 'none';
+  document.getElementById('deathScreen').style.display   = 'none';
+  document.getElementById('btnBack').style.display       = 'flex';
+}
+
+function killPlayer() {
+  gameState = 'dead';
+  document.getElementById('finalScore').textContent = hits;
+  const ldef = LEVEL_DEFS.find(l => l.id === currentLevel);
+  document.getElementById('deathLevel').textContent =
+    ldef ? `Level ${ldef.id}: ${ldef.name}` : '';
+  document.getElementById('deathScreen').style.display  = 'flex';
+  document.getElementById('btnBack').style.display      = 'none';
+}
+
+function revive() {
+  gameState = 'playing';
+  offscreenSince = 0;
+  placeBall();
+  initLevel(currentLevel);
+  document.getElementById('deathScreen').style.display = 'none';
+  document.getElementById('btnBack').style.display     = 'flex';
+}
+
+function goToLevelSelect() {
+  gameState = 'levels';
+  document.getElementById('startScreen').style.display  = 'none';
+  document.getElementById('levelSelect').style.display  = 'flex';
+  document.getElementById('deathScreen').style.display  = 'none';
+  document.getElementById('btnBack').style.display      = 'none';
+}
+
+function goToStart() {
+  gameState = 'start';
+  document.getElementById('startScreen').style.display  = 'flex';
+  document.getElementById('levelSelect').style.display  = 'none';
+  document.getElementById('deathScreen').style.display  = 'none';
+  document.getElementById('btnBack').style.display      = 'none';
+}
+
+// ═══════════════════════════════════════════════════════
+//  PARTICLES
+// ═══════════════════════════════════════════════════════
+function spawnHitParticles(x, y) {
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2, s = 2 + Math.random() * 9;
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s,
+      life:1, decay:.026+Math.random()*.03, hue:330+Math.random()*50, r:3+Math.random()*5 });
+  }
+}
+
+function spawnWallBounce(x, y) {
+  for (let i = 0; i < 5; i++) {
+    const a = Math.random() * Math.PI * 2, s = 2 + Math.random() * 4;
+    particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s,
+      life:.7, decay:.055, hue: 85 + Math.random()*30, r:2+Math.random()*3 });
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════
+function loop(ts) {
+  const dt = clamp((ts - lastTs) / 16.667, 0.1, 3.5);
+  lastTs = ts;
+  if (gameState === 'playing') update(ts, dt);
+  draw(ts);
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════
+//  PHYSICS
+// ═══════════════════════════════════════════════════════
+function update(ts, dt) {
+  const W = canvas.width, H = canvas.height;
+
+  if (!isAirborne) {
+    // ── ROLLING ──────────────────────────────────────
+    ball.vx += tiltX * ROLL_GRAV * dt;
+    ball.vy += tiltY * ROLL_GRAV * dt;
+
+    // Wind effect while rolling (gentle)
+    ball.vx += pWindX * 0.3 * dt;
+    ball.vy += pWindY * 0.3 * dt;
+
+    const fr = Math.pow(pFriction, dt);
+    ball.vx *= fr; ball.vy *= fr;
+
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+
+    if (ball.x < BALL_R)   { ball.x = BALL_R;   ball.vx =  Math.abs(ball.vx) * pEdgeBounce; spawnWallBounce(ball.x, ball.y); }
+    if (ball.x > W-BALL_R) { ball.x = W-BALL_R; ball.vx = -Math.abs(ball.vx) * pEdgeBounce; spawnWallBounce(ball.x, ball.y); }
+    if (ball.y < BALL_R)   { ball.y = BALL_R;   ball.vy =  Math.abs(ball.vy) * pEdgeBounce; spawnWallBounce(ball.x, ball.y); }
+    if (ball.y > H-BALL_R) { ball.y = H-BALL_R; ball.vy = -Math.abs(ball.vy) * pEdgeBounce; spawnWallBounce(ball.x, ball.y); }
+
+    ball.z = 0;
+    ball.squash = 1 + 0.12 * (Math.hypot(ball.vx, ball.vy) / 12);
+    canHit = true;
+
+  } else {
+    // ── AIRBORNE ─────────────────────────────────────
+    ball.vz -= GRAVITY_Z * dt;
+    ball.z  += ball.vz * dt;
+
+    // Wind while airborne (full strength)
+    ball.vx += (tiltX * AIR_STEER + pWindX * 0.05) * dt;
+    ball.vy += (tiltY * AIR_STEER + pWindY * 0.05) * dt;
+    const ad = Math.pow(AIR_DAMP, dt);
+    ball.vx *= ad; ball.vy *= ad;
+
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+
+    const t = ball.vz / HIT_VZ;
+    ball.squash = 1 + clamp(t * 0.25, -0.2, 0.3);
+
+    if (ball.vz < 0 && ball.z < Z_HIT_WINDOW) canHit = true;
+
+    // Auto-bounce or energy death
+    if (ball.z <= 0) {
+      const nextEnergy = rallyVz * RALLY_DECAY;
+      if (nextEnergy < MIN_RALLY_VZ) {
+        killPlayer(); return;
+      } else {
+        rallyVz  = nextEnergy;
+        ball.z   = 1;
+        ball.vz  = rallyVz + Math.random() * 0.8;
+        canHit   = false;
+        landSquash = 1;
+        hitFlash   = 0.3;
+        levelOnBounce(ball.x, ball.y);
+        spawnHitParticles(ball.x, ball.y);
+      }
+    }
+
+    if (ball.z < Z_DEATH) { killPlayer(); return; }
+
+    const pad = 50;
+    const isOff = ball.x < -pad || ball.x > W+pad || ball.y < -pad || ball.y > H+pad;
+    if (isOff) {
+      if (!offscreenSince) offscreenSince = ts;
+      if (ts - offscreenSince > OFFSCREEN_DEATH) { killPlayer(); return; }
+    } else { offscreenSince = 0; }
+  }
+
+  ball.trail.unshift({ x: ball.x, y: ball.y, z: ball.z });
+  if (ball.trail.length > TRAIL_LEN) ball.trail.pop();
+
+  hitFlash   = Math.max(0, hitFlash  - 0.05 * dt);
+  ctrScale   = Math.max(1, ctrScale  - 0.07 * dt);
+  landSquash = Math.max(0, landSquash - 0.08 * dt);
+
+  gridOX = (gridOX + tiltX * 2 * dt + 600) % 60;
+  gridOY = (gridOY + tiltY * 2 * dt + 600) % 60;
+
+  for (let i = particles.length-1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.vy !== undefined) p.vy += 0.18 * dt;
+    p.life -= p.decay * dt;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // Run level-specific logic
+  updateLevel(ts, dt, canvas.width, canvas.height);
+}
+
+// ═══════════════════════════════════════════════════════
+//  BALL RADIUS (perspective)
+// ═══════════════════════════════════════════════════════
+function getBallRadius(z) {
+  const r   = BALL_R * (FOCAL_Z + Math.max(0, z)) / FOCAL_Z;
+  const cap = canvas.height / 8;
+  return Math.min(cap, r);
+}
+
+// ═══════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════
+function draw(ts) {
+  const W = canvas.width, H = canvas.height;
+
+  // Background — depends on level
+  if (gameState === 'playing' && currentLevel === 1) {
+    drawCrackedEarthBg(W, H);
+  } else {
+    drawPingPongTable(W, H);
+  }
+
+  // Level elements UNDER ball (holes, water, etc.)
+  if (gameState === 'playing') drawLevelUnderBall(ts, W, H);
+
+  drawParticles();
+
+  if (gameState === 'playing') {
+    drawTrail();
+    drawShadow(W, H);
+    drawReturnRing(ts);
+    drawBall(ts, W, H);
+
+    // Level elements OVER ball (smoke, monsters, etc.)
+    drawLevelOverBall(ts, W, H);
+
+    if (isAirborne) {
+      const offXY = ball.x < 0 || ball.x > W || ball.y < 0 || ball.y > H;
+      if (offXY) {
+        drawArrow(ts, W, H);
+        if (offscreenSince) drawOffscreenBar(ts, W, H);
+      }
+    }
+
+    drawCounter(W);
+    if (servePrompt) drawServeHint(W, H, ts);
+    drawLevelHUD(ts, W, H);
+    drawDebug(W, H);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  CRACKED DESERT EARTH  (procedural, cached to offscreen canvas)
+// ═══════════════════════════════════════════════════════
+function generateCrackedEarth(W, H) {
+  const oc  = document.createElement('canvas');
+  oc.width  = W; oc.height = H;
+  const c2  = oc.getContext('2d');
+
+  // Seeded RNG — same pattern every time (deterministic)
+  let s = 0xdeadbeef;
+  const rng = () => { s ^= s << 13; s ^= s >> 17; s ^= s << 5; return ((s >>> 0) / 4294967296); };
+
+  // Base sandy-tan fill
+  c2.fillStyle = '#c4a07a';
+  c2.fillRect(0, 0, W, H);
+
+  // Jittered grid of points — gives Voronoi-like cells
+  const CELL = 58;
+  const cols = Math.ceil(W / CELL) + 2;
+  const rows = Math.ceil(H / CELL) + 2;
+
+  const pts = Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: cols }, (_, c) => ({
+      x: (c - 0.5) * CELL + rng() * CELL * 0.68,
+      y: (r - 0.5) * CELL + rng() * CELL * 0.68,
+    }))
+  );
+
+  // Fill each quad cell with varied earthy colour + convex-stone shading
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      const p1 = pts[r][c], p2 = pts[r][c+1];
+      const p3 = pts[r+1][c+1], p4 = pts[r+1][c];
+      const cx = (p1.x+p2.x+p3.x+p4.x) / 4;
+      const cy = (p1.y+p2.y+p3.y+p4.y) / 4;
+
+      const hue = 25 + rng() * 18;          // warm tan to clay
+      const sat = 28 + rng() * 24;
+      const lit = 48 + rng() * 20;
+
+      // Flat fill
+      c2.beginPath();
+      c2.moveTo(p1.x,p1.y); c2.lineTo(p2.x,p2.y);
+      c2.lineTo(p3.x,p3.y); c2.lineTo(p4.x,p4.y);
+      c2.closePath();
+      c2.fillStyle = `hsl(${hue},${sat}%,${lit}%)`;
+      c2.fill();
+
+      // Radial shading: lighter centre → darker edge (raised-slab look)
+      const rr = Math.max(Math.hypot(p2.x-p1.x, p2.y-p1.y),
+                          Math.hypot(p4.x-p1.x, p4.y-p1.y)) * 0.55;
+      const sg = c2.createRadialGradient(cx-rr*0.15, cy-rr*0.2, 0, cx, cy, rr);
+      sg.addColorStop(0,   `hsla(${hue},${sat-8}%,${lit+14}%,0.55)`);
+      sg.addColorStop(0.7, `hsla(${hue},${sat}%,${lit}%,0)`);
+      sg.addColorStop(1,   `hsla(${hue},${sat+8}%,${lit-18}%,0.4)`);
+      c2.beginPath();
+      c2.moveTo(p1.x,p1.y); c2.lineTo(p2.x,p2.y);
+      c2.lineTo(p3.x,p3.y); c2.lineTo(p4.x,p4.y);
+      c2.closePath();
+      c2.fillStyle = sg;
+      c2.fill();
+    }
+  }
+
+  // Crack lines — dark, slightly curved
+  c2.lineCap = 'round';
+  const drawCracks = (pa, pb) => {
+    const w = 0.9 + rng() * 1.6;
+    const alpha = 0.6 + rng() * 0.38;
+    c2.strokeStyle = `rgba(28,10,2,${alpha})`;
+    c2.lineWidth = w;
+    const mx = (pa.x+pb.x)/2 + (rng()-0.5)*12;
+    const my = (pa.y+pb.y)/2 + (rng()-0.5)*12;
+    c2.beginPath();
+    c2.moveTo(pa.x, pa.y);
+    c2.quadraticCurveTo(mx, my, pb.x, pb.y);
+    c2.stroke();
+    // Very thin lighter edge on one side (crack depth illusion)
+    c2.strokeStyle = `rgba(210,170,120,0.18)`;
+    c2.lineWidth   = 0.5;
+    c2.beginPath();
+    c2.moveTo(pa.x+1, pa.y+1);
+    c2.quadraticCurveTo(mx+1, my+1, pb.x+1, pb.y+1);
+    c2.stroke();
+  };
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols-1; c++) drawCracks(pts[r][c], pts[r][c+1]);
+  for (let r = 0; r < rows-1; r++)
+    for (let c = 0; c < cols;   c++) drawCracks(pts[r][c], pts[r+1][c]);
+
+  // Vignette
+  const vg = c2.createRadialGradient(W/2, H/2, H*0.28, W/2, H/2, H*0.82);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(18,6,0,0.32)');
+  c2.fillStyle = vg;
+  c2.fillRect(0, 0, W, H);
+
+  return oc;
+}
+
+function drawCrackedEarthBg(W, H) {
+  if (!crackedEarthCache || crackedEarthCache.width !== W || crackedEarthCache.height !== H) {
+    crackedEarthCache = generateCrackedEarth(W, H);
+  }
+  ctx.drawImage(crackedEarthCache, 0, 0);
+
+  // Subtle border — orange/red for desert level
+  const hitReady = isAirborne && canHit && ball.z < Z_HIT_WINDOW;
+  ctx.strokeStyle = hitReady ? 'rgba(255,180,60,0.75)' : 'rgba(90,40,10,0.8)';
+  ctx.lineWidth   = hitReady ? 5 : 8;
+  if (hitReady) { ctx.shadowColor = 'rgba(255,160,40,0.6)'; ctx.shadowBlur = 12; }
+  ctx.beginPath(); rrect(4, 4, W-8, H-8, 3); ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+// ── Ping-pong table ───────────────────────────────────
+function drawPingPongTable(W, H) {
+  ctx.fillStyle = '#2a7a30';
+  ctx.fillRect(0, 0, W, H);
+
+  // Vignette
+  const vg = ctx.createRadialGradient(W/2, H/2, H*0.25, W/2, H/2, H*0.78);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.22)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Parallax lines
+  const px = tiltX * -9, py = tiltY * -9;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+  ctx.lineWidth   = 2.5;
+  ctx.shadowColor = 'rgba(255,255,255,0.3)'; ctx.shadowBlur = 4;
+  ctx.beginPath(); ctx.moveTo(12+px, H/2+py); ctx.lineTo(W-12+px, H/2+py); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2+px, 12+py); ctx.lineTo(W/2+px, H-12+py); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  // Border — glows when hittable
+  const hitReady = isAirborne && canHit && ball.z < Z_HIT_WINDOW;
+  ctx.strokeStyle = hitReady ? 'rgba(180,220,255,0.75)' : 'rgba(22,32,100,0.9)';
+  ctx.lineWidth   = hitReady ? 5 : 9;
+  if (hitReady) { ctx.shadowColor = 'rgba(150,200,255,0.6)'; ctx.shadowBlur = 10; }
+  ctx.beginPath(); rrect(4, 4, W-8, H-8, 3); ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+// ── Shadow on table surface ───────────────────────────
+function drawShadow(W, H) {
+  if (!isAirborne || ball.z <= 0) return;
+  const t  = 1 - clamp(ball.z / 280, 0, 1);
+  if (t < 0.01) return;
+  const sw = Math.max(8, BALL_R * 1.3 * t);
+  const sh = sw * 0.3;
+  ctx.save();
+  ctx.globalAlpha = t * t * 0.3;
+  ctx.fillStyle   = '#001a00';
+  ctx.beginPath(); ctx.ellipse(ball.x, ball.y, sw*2, sh*2, 0, 0, Math.PI*2); ctx.fill();
+  ctx.globalAlpha = t * t * 0.55;
+  ctx.fillStyle   = '#000e00';
+  ctx.beginPath(); ctx.ellipse(ball.x, ball.y, sw, sh, 0, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+// ── Pulsing ring when ball is returnable ──────────────
+function drawReturnRing(ts) {
+  if (!isAirborne || !canHit || ball.z >= Z_HIT_WINDOW) return;
+  const t     = 1 - ball.z / Z_HIT_WINDOW;
+  const r     = getBallRadius(ball.z);
+  const ringR = r + 16 + (1-t)*20;
+  const pulse = 0.5 + 0.5 * Math.sin(ts / 85);
+  ctx.save();
+  ctx.globalAlpha  = t * pulse;
+  ctx.strokeStyle  = t > 0.6 ? '#f5a623' : '#e94560';
+  ctx.lineWidth    = 2.5;
+  ctx.shadowColor  = t > 0.6 ? '#f5a623' : '#e94560'; ctx.shadowBlur = 14;
+  ctx.setLineDash([5, 9]);
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, ringR, 0, Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// ── Trail ─────────────────────────────────────────────
+function drawTrail() {
+  for (let i = ball.trail.length-1; i >= 0; i--) {
+    const tp   = ball.trail[i];
+    const prog = 1 - i / ball.trail.length;
+    const r    = getBallRadius(tp.z) * prog * 0.5;
+    if (r < 0.5) continue;
+    ctx.globalAlpha = prog * prog * 0.18;
+    ctx.fillStyle   = '#e94560';
+    ctx.beginPath(); ctx.arc(tp.x, tp.y, r, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── Ball ──────────────────────────────────────────────
+function drawBall(ts, W, H) {
+  const { x, y, z } = ball;
+  const baseR = getBallRadius(z);
+
+  const sq = isAirborne ? ball.squash : (1 - landSquash * 0.3);
+  const rX  = baseR * (isAirborne ? 1 : 1 + landSquash * 0.18);
+  const rY  = baseR * (isAirborne ? sq : 1 - landSquash * 0.22);
+
+  const proximity = isAirborne ? clamp(1 - z / Z_HIT_WINDOW, 0, 1) : 1;
+  const hue   = 220 - proximity * 200;
+  const light = 55  + proximity * 15;
+  const sat   = 65  + proximity * 25;
+
+  const glowR = baseR * (2.4 + hitFlash * 1.6);
+  const glow  = ctx.createRadialGradient(x, y, baseR*.1, x, y, glowR);
+  glow.addColorStop(0, `hsla(${hue},${sat}%,${light}%,${0.14 + hitFlash*.4})`);
+  glow.addColorStop(1, `hsla(${hue},${sat}%,${light}%,0)`);
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.ellipse(x, y, glowR, glowR, 0, 0, Math.PI*2); ctx.fill();
+
+  const body = ctx.createRadialGradient(x - rX*.28, y - rY*.33, rX*.04, x, y, Math.max(rX,rY));
+  body.addColorStop(0,    `hsl(${hue},${sat}%,${light+28}%)`);
+  body.addColorStop(0.55, `hsl(${hue},${sat}%,${light}%)`);
+  body.addColorStop(1,    `hsl(${hue},${sat}%,${light-25}%)`);
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.ellipse(x, y, rX, rY, 0, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(x - rX*.27, y - rY*.33, rX*.2, rY*.12, -.4, 0, Math.PI*2);
+  ctx.fill();
+
+  if (isAirborne && ball.vz < 0 && z < 22) {
+    const frac = 1 - z/22;
+    ctx.globalAlpha = frac * 0.85;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5;
+    ctx.shadowColor = '#fff'; ctx.shadowBlur = 18;
+    ctx.beginPath(); ctx.ellipse(x, y, rX+7, rY+7, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+}
+
+// ── Serve hint ────────────────────────────────────────
+function drawServeHint(W, H, ts) {
+  const alpha = 0.45 + 0.3 * Math.sin(ts / 600);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle   = 'rgba(255,255,255,1)';
+  ctx.font        = '600 15px -apple-system,sans-serif';
+  ctx.textAlign   = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('Tap to serve  ↑', W/2, H - 80);
+  ctx.restore();
+}
+
+// ── Off-screen arrow ──────────────────────────────────
+function drawArrow(ts, W, H) {
+  const MARG = 55;
+  const ax = clamp(ball.x, MARG, W-MARG);
+  const ay = clamp(ball.y, MARG, H-MARG);
+  const angle = Math.atan2(ball.y-ay, ball.x-ax);
+  const ex = clamp(ball.x,0,W), ey = clamp(ball.y,0,H);
+  const dist = Math.hypot(ball.x-ex, ball.y-ey);
+  const sz = 27 - clamp(dist/400,0,1)*13;
+  const p  = 0.6 + 0.4*Math.sin(ts/200);
+  ctx.save();
+  ctx.translate(ax,ay); ctx.rotate(angle);
+  ctx.globalAlpha = p; ctx.fillStyle = '#f5a623';
+  ctx.shadowColor = '#f5a623'; ctx.shadowBlur = 18;
+  ctx.beginPath();
+  ctx.moveTo(sz,0); ctx.lineTo(-sz*.55,-sz*.55); ctx.lineTo(-sz*.15,0); ctx.lineTo(-sz*.55,sz*.55);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+// ── Off-screen death bar ──────────────────────────────
+function drawOffscreenBar(ts, W, H) {
+  const prog = clamp((ts-offscreenSince)/OFFSCREEN_DEATH, 0, 1);
+  const bw=200, bh=5, bx=W/2-100, by=H-66;
+  ctx.fillStyle='rgba(255,255,255,.1)'; rrect(bx,by,bw,bh,3); ctx.fill();
+  if (prog<1) {
+    ctx.fillStyle = prog<.5 ? '#f5a623' : '#e94560';
+    rrect(bx,by,bw*(1-prog),bh,3); ctx.fill();
+  }
+  ctx.fillStyle='rgba(255,255,255,.38)';
+  ctx.font='600 11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillText('GET IT BACK!', W/2, by+10);
+}
+
+// ── Particles ─────────────────────────────────────────
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle   = `hsl(${p.hue},85%,62%)`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r*p.life, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── Hit counter ───────────────────────────────────────
+function drawCounter(W) {
+  const s = ctrScale;
+  ctx.save();
+  ctx.translate(W/2, 30); ctx.scale(s,s);
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.font='900 66px -apple-system,sans-serif';
+  ctx.fillStyle='#fff';
+  ctx.shadowColor='rgba(233,69,96,.6)'; ctx.shadowBlur=24;
+  ctx.fillText(hits, 0, 0);
+  ctx.scale(1/s,1/s); ctx.shadowBlur=0;
+  ctx.font='500 10px sans-serif';
+  ctx.fillStyle='rgba(255,255,255,.28)';
+  ctx.fillText('S W I N G S', 0, 72);
+  ctx.restore();
+}
+
+// ── Debug overlay (triple-tap to toggle) ─────────────
+function drawDebug(W, H) {
+  if (!window._dbg) return;
+  ctx.save();
+  ctx.font='500 11px monospace'; ctx.textAlign='left'; ctx.textBaseline='top';
+  const lines = [
+    'GYRO: ' + (gyroActive ? '✓' : '✗'),
+    'tiltX: ' + tiltX.toFixed(3),
+    'tiltY: ' + tiltY.toFixed(3),
+    'ball.z: ' + ball.z.toFixed(1),
+    'rallyVz: ' + rallyVz.toFixed(2) + ' / ' + MAX_VZ,
+    'level: ' + currentLevel,
+    'holes: ' + (lvl.holes ? lvl.holes.length : '-'),
+  ];
+  lines.forEach((l, i) => {
+    const x = 10, y = H - 20 - (lines.length-i)*16;
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.fillRect(x-2, y-1, ctx.measureText(l).width+6, 14);
+    ctx.fillStyle = gyroActive ? '#4f9' : '#f84';
+    ctx.fillText(l, x, y);
+  });
+  ctx.restore();
+}
+
+let _tapTs = [];
+canvas.addEventListener('touchstart', () => {
+  _tapTs.push(Date.now());
+  if (_tapTs.length > 3) _tapTs.shift();
+  if (_tapTs.length === 3 && _tapTs[2] - _tapTs[0] < 600) window._dbg = !window._dbg;
+}, { passive: true });
+
+// ═══════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════
+function clamp(v,lo,hi){ return v<lo?lo:v>hi?hi:v; }
+function rrect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h); ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r);
+  ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
+
+// ═══════════════════════════════════════════════════════
+//  LEVEL SELECT — BUILD GRID
+// ═══════════════════════════════════════════════════════
+function buildLevelGrid() {
+  const grid = document.getElementById('levelGrid');
+  grid.innerHTML = '';
+  LEVEL_DEFS.forEach(def => {
+    const card = document.createElement('div');
+    card.className = 'level-card' + (def.ready ? ' active' : ' locked');
+    card.innerHTML = `
+      <span class="lc-emoji">${def.emoji}</span>
+      <div class="lc-num">LEVEL ${def.id}</div>
+      <div class="lc-name">${def.name}</div>
+      <div class="lc-desc">${def.desc}</div>
+      <div class="lc-badge">${def.ready ? 'PLAY' : 'SOON'}</div>
+    `;
+    if (def.ready) {
+      card.addEventListener('click', async () => {
+        await requestSensors();
+        startGame(def.id);
+      });
+    }
+    grid.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+//  UI WIRING
+// ═══════════════════════════════════════════════════════
+document.getElementById('btnStart').addEventListener('click', () => {
+  buildLevelGrid();
+  goToLevelSelect();
+});
+document.getElementById('btnLsBack').addEventListener('click', goToStart);
+document.getElementById('btnRevive').addEventListener('click', revive);
+document.getElementById('btnRetry').addEventListener('click', () => {
+  document.getElementById('deathScreen').style.display = 'none';
+  startGame(currentLevel);
+});
+document.getElementById('btnToLevels').addEventListener('click', () => {
+  buildLevelGrid();
+  goToLevelSelect();
+});
+document.getElementById('btnBack').addEventListener('click', () => {
+  buildLevelGrid();
+  goToLevelSelect();
+});
+
+// ═══════════════════════════════════════════════════════
+//  KICK OFF
+// ═══════════════════════════════════════════════════════
+requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
